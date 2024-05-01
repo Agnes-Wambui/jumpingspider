@@ -1,0 +1,206 @@
+---
+title: "R Notebook"
+output:
+  html_notebook: default
+  pdf_document: default
+---
+
+This exercise prepares data from a study that was conducted in the 3 districts that make up Kigali City. 
+In each of the districts, a list of households in ubudehe category 1 was collected.
+For each household, additional information was collected on the household head.
+There are 2 datasets for each district:
+• a main dataset, and
+• a roster dataset.
+The main datasets contain information on:
+i. where the households on which ubudehe data was collected are located,
+ii. the local authority in charge of ubudehe data, and
+iii. the number of households in ubudehe category 1.
+The roster dataset contains information on:
+i. the household head in each of the households listed.
+
+
+```{r}
+#import R packages
+library(tidyverse)
+library(labelled)
+library(openxlsx)
+library(dbplyr)
+```
+
+```{r}
+#create dataframes to store data
+main <- read.csv("C:\\Users\\user\\Downloads\\laterite_dq analyst_technical assessment_data cleaning_sept 2023\\main_dataset.csv", header=TRUE, stringsAsFactors=FALSE)
+roster <- read.csv("C:\\Users\\user\\Downloads\\laterite_dq analyst_technical assessment_data cleaning_sept 2023\\roster_dataset.csv", header=TRUE, stringsAsFactors=FALSE)
+
+```
+
+
+
+```{r}
+#label all columns in the main dataset
+var_label(main) <- c('province_id'='Province code',
+'province_name'='Province of residence',
+'district_id'='District code',
+'district_name'='District of residence',
+'sector_id'='Sector code',
+'sector_name'='Sector of residence',
+'cell_id'='Cell code',
+'cell_name'='Cell of residence',
+'village_id'='Village code',
+'village_name'='Village of residence',
+'list_available'='If the ubudehe list is available',
+'list_source'='From whom the ubudehe list was obtained',
+'ubudehe_contact'='Ubudehe list contact person',
+'contact_role'='Role of the ubudehe list contact person',
+'contact_phone'='Phone number of ubudehe list contact person',
+'num_households'='Number of households in ubudehe',
+'gpslatitude'='Latitutde of where list was obtained',
+'gpslongitude'='Longitude of where list was obtained',
+'gpsaltitude'='Altitude of where list was obtained',
+'gpsaccuracy'='Accuracy of the GPS coordinates obtained',
+'parent_key'='Unique ID')
+```
+
+
+
+```{r}
+#label all columns in the roster dataset
+var_label(roster) <- c('hh_head_position'='Position of household head',
+'name_hh_head'='Name of the household',
+'nid_hh_head'='National ID number of the household head',
+'phone_hh_head'='Phone number of household head',
+'parent_key'='Unique ID')
+```
+
+
+
+```{r}
+#assign labels to values of the categorical variables 
+val_labels(main$list_available) <- c(Yes = 1, No = 0)
+val_labels(main$list_source) <- c('Sector Executive Officer'=1,
+                                         'Cell Executive Officer'=2,
+                                         'Village Leader'=3)
+val_labels(main$contact_role) <- c('Village leader'=1,
+                                         'Village in-charge of security'=2,
+                                         'Village Community Health Worker'=3)
+```
+
+
+```{r}
+#assign values of the variable province_name as the labels of the values of the variable province_id
+provinces <- deframe(unique(main[c("province_name","province_id")]))
+val_labels(main$province_id) <- provinces
+```
+
+
+
+```{r}
+#assign values of the variable district_name as the labels of the values of the variable district_id
+districts <- deframe(unique(main[c("district_name","district_id")]))
+val_labels(main$district_id) <- districts
+```
+
+
+
+```{r}
+#assign values of the variable sector_name as the labels of the values of the variable sector_id
+sectors <- deframe(unique(main[c("sector_name","sector_id")]))
+val_labels(main$sector_id) <- sectors
+```
+
+
+```{r}
+#assign values of the variable cell_name as the labels of the values of the variable cell_id
+cells <- deframe(unique(main[c("cell_name","cell_id")]))
+val_labels(main$cell_id) <- cells
+```
+
+
+```{r}
+#assign values of the variable village_name as the labels of the values of the variable village_id
+villages <- deframe(unique(main[c("village_name","village_id")]))
+val_labels(main$village_id) <- villages
+```
+
+
+```{r}
+#create new location variables as factors so that we can display the value labels in place of the numerical values
+main$province <- as_factor(main$province_id,levels ="labels")
+main$district <- as_factor(main$district_id,levels ="labels")
+main$sector <- as_factor(main$sector_id,levels ="labels")
+main$cell <- as_factor(main$cell_id,levels ="labels")
+main$village <- as_factor(main$village_id,levels ="labels")
+```
+
+
+```{r}
+#merge the main and roster datasets by adding a new column to the main dataset which contains combined roster data of all households located in each village
+merged_agneswambui_20231231 <- main #copy main dataset
+hh_details = list() #create empty list to store roster data
+key <- main$parent_key #
+index <- 1
+for (k in key){ #loop through all villages and combine their roster data
+  hh_details[[index]] <- roster[roster$parent_key == k,]
+  index <- index+1
+}
+ 
+merged_agneswambui_20231231$hh_details <- hh_details #create new dataset
+```
+
+
+```{r}
+#combine the latitude and longitude variables to create a gps coordinates variable
+clean_agneswambui_20231231 <- merged_agneswambui_20231231 #copy merged data
+clean_agneswambui_20231231$gps <- paste(merged_agneswambui_20231231$gpslatitude,merged_agneswambui_20231231$gpslongitude)
+```
+
+
+```{r}
+#reorder columns
+clean_agneswambui_20231231 <- clean_agneswambui_20231231[,c('province_id','province_name','district_id','district_name','sector_id','sector_name','cell_id','cell_name','village_id','village_name','list_available','list_source','ubudehe_contact','contact_role','contact_phone','num_households','hh_details','gps','parent_key')]
+
+```
+
+
+```{r}
+#assign labels to new variables
+var_label(clean_agneswambui_20231231$gps) <- 'GPS coordinates of where the list was obtained'
+var_label(clean_agneswambui_20231231$hh_details) <- 'Personal information of heads of households'
+```
+
+
+```{r}
+#check that all variables have been labelled correctly
+var_label(clean_agneswambui_20231231)
+```
+
+```{r}
+#generate an excel file of roster data for each district and put data for different sectors in separate worksheets  
+districts <- unique(clean_agneswambui_20231231$district_name) #get unique list of districts
+for (d in districts){ #loop through each district
+  sector_data <- list()
+  index_districts <- 1 
+  data <- clean_agneswambui_20231231[clean_agneswambui_20231231$district_name == d,]
+  sectors <- unique(data$sector_name) #get unique list of sectors
+  
+  for (s in sectors){ #loop through each sector in the district
+    hh_details <- data[data$sector_name == s,]$hh_details
+    index_districts <- index_districts+1
+    df_list = list()
+    
+    for (f in 1:length(hh_details)){ #loop through each village in the sector
+      df_list[[f]] <- hh_details[f]
+      
+    } 
+    df_combine <- bind_rows(df_list) #combine roster data for each sector
+    sector_data[[index_districts]] <- df_combine 
+  }
+  path <- paste0("C:\\Users\\user\\Downloads\\laterite_dq analyst_technical assessment_data cleaning_sept 2023\\",d,".xlsx")
+  write.xlsx(sector_data, file = path) #create excel file to save data for each sector on separate worksheets and repeat for all districts
+}
+```
+
+
+
+
+
