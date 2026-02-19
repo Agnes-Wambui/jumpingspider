@@ -1,0 +1,123 @@
+```{r}
+library(e1071)
+library(caTools)
+library(ggplot2)
+library(dplyr)
+library(reshape2)
+library(caret)
+library(pROC)
+```
+
+```{r}
+#load data
+cholera_dt <- read.csv("kenya_cholera_risk_2009-2019.csv")
+cholera_dt
+```
+
+```{r}
+summary(cholera_dt)
+```
+
+```{r}
+#factoring and scaling the data
+cholera_dt$cholera.outbreak <- factor(cholera_dt$cholera.outbreak, levels = c("No outbreak", "Outbreak"), labels = c(0,1))
+
+cholera_dt$population.density <- as.numeric(factor(cholera_dt$population.density,levels = c("Very Low","Low","Medium","High","Very High"), labels = c(0,1,2,3,4)))
+
+cholera_dt$county_num <- as.numeric(factor(cholera_dt$County))
+
+cholera_dt[, c("X.of.hh.using.improved.water.source","X.of.hh.using.improved.waste.disposal","secondary.completion.rate")] <- scale(cholera_dt[, c("X.of.hh.using.improved.water.source","X.of.hh.using.improved.waste.disposal","secondary.completion.rate")])
+```
+
+```{r}
+write.csv(cholera_dt,"cholera_dt.csv")
+```
+
+```{r}
+ggplot(cholera_dt, aes(cholera.outbreak)) + geom_bar() 
+```
+
+```{r}
+#splitting the data into the training and testing set
+svm_split <-sample.split(cholera_dt$cholera.outbreak, SplitRatio = 0.70)
+svm_training_dt <- subset(cholera_dt, svm_split == TRUE)
+svm_test_dt <- subset(cholera_dt, svm_split == FALSE)
+```
+
+```{r}
+#oversampling the training data
+svm_training_dt2 <- upSample(x = svm_training_dt[,!names(svm_training_dt) %in% c("cholera.outbreak")], y = svm_training_dt$cholera.outbreak)
+```
+
+```{r}
+#training the SVM model
+svm_model <- svm(Class ~ X.of.hh.using.improved.water.source + X.of.hh.using.improved.waste.disposal + secondary.completion.rate + population.density + year + county_num,
+                 data = svm_training_dt2,
+                 type = "C-classification",
+                 kernal = "radial",
+                 gamma = 0.1
+                 )
+```
+
+```{r}
+#SVM model predictions and performance
+svm_test_dt$outbreak_pred_svm <- predict(svm_model, newdata = svm_test_dt)
+conf_matrix_svm <- table(svm_test_dt$cholera.outbreak, svm_test_dt$outbreak_pred_svm)
+confusionMatrix(conf_matrix_svm)
+```
+
+```{r}
+#split the data into training and testing set
+log_split <-sample.split(cholera_dt$cholera.outbreak, SplitRatio = 0.70)
+log_training_dt <- subset(cholera_dt, log_split == TRUE)
+log_test_dt <- subset(cholera_dt, log_split == FALSE)
+```
+
+```{r}
+#oversampling training data
+log_training_dt2 <- upSample(x = log_training_dt[,!names(log_training_dt) %in% c("cholera.outbreak")], y = log_training_dt$cholera.outbreak)
+```
+
+```{r}
+#training Logistic Regression model
+logistic_model <- glm(Class ~ X.of.hh.using.improved.water.source + X.of.hh.using.improved.waste.disposal + secondary.completion.rate + population.density + year + county_num,
+                 data = log_training_dt2,
+                 family = "binomial")
+```
+
+```{r}
+#LR model predictions and performance
+log_test_dt$outbreak_pred_logistic <- round(predict(logistic_model, newdata = log_test_dt, type = "response"),0)
+conf_matrix_log <- table(log_test_dt$cholera.outbreak, log_test_dt$outbreak_pred_logistic)
+confusionMatrix(conf_matrix_log)
+```
+
+```{r}
+# Create a data frame for plotting ROC curves
+roc1 <- roc(as.numeric(svm_test_dt$cholera.outbreak), as.numeric(svm_test_dt$outbreak_pred_svm))
+roc2 <- roc(as.numeric(log_test_dt$cholera.outbreak), as.numeric(log_test_dt$outbreak_pred_logistic))
+
+# Create a data frame for plotting ROC curves
+roc_data <- data.frame(
+  specificity = c(roc1$specificities, roc2$specificities),
+  sensitivity = c(roc1$sensitivities, roc2$sensitivities),
+  model = factor(rep(c("Support Vector Machine", "Logistic Regression"), 
+                     each = length(roc1$specificities)))
+)
+
+# Plot ROC curves using ggplot2
+roc_curves <- ggplot(roc_data, aes(x = 1 - specificity, y = sensitivity, color = model)) +
+  geom_line(size = 1) +
+  labs(title = "ROC Curves",
+       x = "1 - Specificity",
+       y = "Sensitivity") +
+  theme_minimal()
+```
+
+```{r}
+ggsave(filename = "roc_curves.png", plot = roc_curves)
+```
+
+```{r}
+saveRDS(svm_model, "final_svm_model.rds")
+```
